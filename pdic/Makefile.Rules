@@ -1,0 +1,161 @@
+#! /usr/bin/make -f
+# Makefile rules
+# $Id$
+
+
+# Common variables
+
+# Removing
+RM	= rm -rf
+
+# Compiler's flags
+
+CFLAGS	= $(INCLUDES) $(LIBS) $(DBGFLAGS) $(OPTFLAGS) $(RPTFLAGS) $(DIAGFLAGS)
+
+# Debug flags (if debug info needed, add -g)
+DBGFLAGS= -g
+
+# Linker flags
+LDFLAGS = -openmp
+#-openmp-lib 4
+
+# Flags for compilation under Xeon Phi
+PHIFLAGS = -mmic 
+
+# Optimization flags
+OPTFLAGS = -O3 -parallel -qopt-dynamic-align -use-intel-optimized-headers -vec-guard-write 
+#-simd
+
+# Report flags
+RPTFLAGS = -qopt-report=5 -qopt-report-phase=vec,loop
+#-openmp-report2 -par-report3 
+#-opt-report-file=optreport.txt 
+#-tcollect
+
+# Diagnostic flags
+DIAGFLAGS = -Wcheck -diag-enable vec,par,openmp 
+# -diag-enable sc3,sc-precise,sc-parallel3,vec,par,openmp -diag-file=diag.txt
+#-Weffc++
+
+# Include flags
+INCLUDE = $(ROOT)include
+INCLUDES= -I$(INCLUDE) -I$(VT_ROOT)/include
+
+# Library flags
+LIB	= $(ROOT)lib
+LIBS	= -L$(LIB) -L$(VT_LIB_DIR)
+
+# Wildcards
+SOURCES	= $(wildcard *.cpp)
+HEADERS = $(wildcard *.h)
+PREPROCS= $(wildcard *.i) 
+OBJHOST	= $(SOURCES:.cpp=.o)
+OBJPHI	= $(SOURCES:.cpp=.o.phi)
+OBJS	= $(OBJHOST) $(OBJPHI)
+EXEHOST	= $(SOURCES:.cpp=)
+EXEPHI	= $(SOURCES:.cpp=.phi)
+EXES	= $(EXEHOST) $(EXEPHI)
+
+# Apps
+DOCIFY	= docify
+CC	= icpc
+#CC	= icc
+GCC	= g++
+AR	= ar
+LD	= ld
+LINT	= g++
+INDENT	= /usr/bin/indent
+INFLAGS	= -i8 -kr
+
+
+# Additions to variables
+
+JUNK += d. dos* dos*.err dos*.out *~ .*~ core TAGS *.*.map *.map a.out $(OBJS) $(EXES) $(PREPROCS) .depend *.d .emacs.desktop *.optrpt
+MOREJUNK += *.d .depend $(OBJS)
+
+# "phony" targets
+
+.PHONY:	default	all clean depend indent lint
+
+# Recursive targets
+
+ifneq ($(strip $(SUBDIRS)),)
+all clean distclean depend TAGS install indent lint::
+	@for dir in $(SUBDIRS); do \
+		echo Making $@ in $$dir; \
+		(cd $$dir; $(MAKE) $(MFLAGS) ROOT=../$(ROOT) $@); \
+	done
+endif
+
+# Clean
+
+clean::
+	$(RM) $(JUNK)
+
+distclean::	
+	$(RM) $(JUNK) $(MOREJUNK)
+
+# Compile
+%: %.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ 
+
+%.serial: %.o
+	$(CC) $(CFLAGS) -openmp-stubs -o $@ $^
+
+%.phi: %.o.phi
+	$(CC) $(CFLAGS) $(LDFLAGS) $(PHIFLAGS) -o $@ $^ 
+	
+%.phi.serial: %.o.phi
+	$(CC) $(CFLAGS) $(PHIFLAGS) -openmp-stubs -o $@ $^ 
+
+%: %.cpp
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+%.o: %.cpp
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ -c $<
+
+%.o.phi: %.cpp
+	$(CC) $(CFLAGS) $(LDFLAGS) $(PHIFLAGS) -o $@ -c $<
+
+%.i: %.cpp
+	$(CC) $(CFLAGS) -P $<
+
+%.o.a: %.o
+	$(AR) cru $(LIBOMEGA) $*.o
+
+# Dependencies
+
+%.d: %.cpp
+	$(SHELL) -ec 'gcc -MM $(INCLUDES) $< \
+	| sed '\''s/\($*\)\.o[ :]*/\1.o $@ : /g'\''> $@; \
+	[ -s $@ ] || rm -f $@'	
+
+ifneq ($(wildcard *.cpp),)
+depend:: $(SOURCES) $(HEADERS)
+	$(GCC) $(INCLUDES) -MM *.cpp > .depend
+endif
+
+	
+# Include dependencies
+
+#ifeq (.depend,$(wildcard .depend))
+#include .depend
+#endif
+#ifneq ($(MAKECMDGOALS),clean)
+#ifneq ($(MAKECMDGOALS),distclean)
+#ifneq ($(MAKECMDGOALS),depend)
+#ifneq ($(strip $(SOURCES)),)
+#include $(SOURCES:.c=.d)
+#endif
+#endif
+#endif
+#endif
+
+# Source code indentation
+
+ifneq ($(wildcard *.[ch]),)
+indent::
+	$(INDENT) $(INFLAGS) *.[ch]
+endif
+
+
